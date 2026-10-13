@@ -9178,8 +9178,9 @@ inline void parse_disposition_params(const std::string &s, Params &params) {
                    divide_param_pair(b, e, key, val);
 
                    if (!key.empty()) {
-                     params.emplace(trim_double_quotes_copy(key),
-                                    trim_double_quotes_copy(val));
+                     params.emplace(
+                         case_ignore::to_lower(trim_double_quotes_copy(key)),
+                         trim_double_quotes_copy(val));
                    }
                  });
 }

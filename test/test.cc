@@ -1723,6 +1723,48 @@ TEST(ParseDispositionParamsTest, QuotedValues) {
   }
 }
 
+TEST(ParseDispositionParamsTest, ParameterNamesAreCaseInsensitive) {
+  Params params;
+  detail::parse_disposition_params(
+      "NaMe=\"FiElD\"; FILENAME=\"MiXeD.txt\"; FILENAME*=UTF-8''Report.pdf",
+      params);
+  ASSERT_EQ(1U, params.count("name"));
+  EXPECT_EQ("FiElD", params.find("name")->second);
+  ASSERT_EQ(1U, params.count("filename"));
+  EXPECT_EQ("MiXeD.txt", params.find("filename")->second);
+  ASSERT_EQ(1U, params.count("filename*"));
+  EXPECT_EQ("UTF-8''Report.pdf", params.find("filename*")->second);
+}
+
+TEST(ParseDispositionParamsTest, MixedCaseParametersSurviveUpload) {
+  Server svr;
+  svr.Post("/case", [](const Request &req, Response &res) {
+    EXPECT_TRUE(req.form.has_field("FiElD"));
+    EXPECT_EQ("Text", req.form.get_field("FiElD"));
+    ASSERT_TRUE(req.form.has_file("upload"));
+    EXPECT_EQ("MiXeD.txt", req.form.get_file("upload").filename);
+    EXPECT_EQ("File", req.form.get_file("upload").content);
+    res.set_content("ok", "text/plain");
+  });
+  auto port = svr.bind_to_any_port(HOST);
+  thread t([&] { svr.listen_after_bind(); });
+  auto se = detail::scope_exit([&] {
+    svr.stop();
+    t.join();
+  });
+  svr.wait_until_ready();
+  const string body =
+      "--boundary\r\nContent-Disposition: FORM-DATA; NAME=\"FiElD\"\r\n\r\n"
+      "Text\r\n--boundary\r\nContent-Disposition: form-data; name=\"upload\"; "
+      "FILENAME=\"MiXeD.txt\"\r\nContent-Type: text/plain\r\n\r\nFile\r\n"
+      "--boundary--\r\n";
+  Client cli(HOST, port);
+  auto res = cli.Post("/case", body, "multipart/form-data; boundary=boundary");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(StatusCode::OK_200, res->status);
+  EXPECT_EQ("ok", res->body);
+}
+
 TEST(ParseDispositionParamsTest, QuotedValuesSurviveTheRoundTrip) {
   // escape_multipart_field() only escapes '"', CR and LF, so a name or
   // filename holding '=' or ';' reaches the server's parameter parser as is.
